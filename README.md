@@ -1,51 +1,55 @@
-# POW-captcha-js
+# PoW-captcha
 
-A pow-based captcha for your web application.
+A PoW-based captcha for your web application.
+
+![](demo.gif)
 
 ## require
 
-- nodejs >= v14.15.0
+- nodejs >= v12.16.0
 
 ## How to use
 
+### Install
+
 ```shell
-npm install
+npm install PoW-captcha
+```
+## Usage
+
+⚡You must design the server logic for the pow, and you can refer to [API](#API)
+
+### Basic Usage
+
+```javascript
+const Captcha = require("PoW-captcha");
+const [api1, api2] = ['http://server.com/powConfig', 'http://server.com/powVerify'];
+Captcha.startPoW(api1, api2).then(res => {
+    console.log(res);
+}).catch(e => {
+    console.log(e);
+}
+)
+```
+### Advanced Usage
+
+You may want to use your request object , such as `axios`
+
+```javascript
+const Captcha = require("PoW-captcha");
+const [api1, api2] = ['http://server.com/powConfig', 'http://server.com/powVerify'];
+Captcha.getPoWWithAxios(api1, this.$axios).then(config => {
+    Captcha.tryPoWWithAxios(api2, config, this.$axios).then(verifyResult => {
+        console.log('verifyResult = ', verifyResult);
+    }).catch(e => {
+        console.log(e);
+    })
+    }).catch(e => {
+        console.log(e);
+    }
+)
 ```
 
-```
-npm run build
-```
-
-Then you will find `pow-captcha-js.js` in `./dist`.
-
-Copy it to your project.
-
-For example in vue,you can copy it to `static\js\pow-captcha-js.js`,
-
-then use it with code:
-
-```vue
-<script>
-    import { Captcha } from "../../static/js/pow-captcha-js.js"
-	export default {
-      mounted() {
-        this.pow();
-      },
-      methods: {
-      	pow() {
-		  const CONFIG_URL = '/api/admin/powConfig';
-          const VERIFY_URL = '/api/admin/powVerify'
-          const cpt = new Captcha();
-          cpt.start(CONFIG_URL, VERIFY_URL).then(resobj=>{
-            console.log('obj==>', resobj);
-          }).catch(e=>{
-            console.log('pow e =>', e);
-          })
-    	},
-      }
-  },
-</script>
-```
 
 ⚡You must design the server logic for the pow
 
@@ -53,9 +57,9 @@ then use it with code:
 
 ### server
 
-#### 1.
+#### 1. getConfig
 
-In server,You must return json data in `CONFIG_URL`
+In server,You must return json data in `/powConfig`
 
 The format of return data may be like this:
 
@@ -71,11 +75,45 @@ The thing of client must to do is that find a `paddingNum`,which satisfies:
 md5(prefix+string(paddingNum))=000...00xxxx
 ```
 
-where the number of leading zeros at least `difficulty`
+where the number of leading zeros at least `difficulty`.
 
-#### 2.
+For example with Java Spring Boot:
 
- In `VERIFY_URL`，you will get the data posted by client, where data likes:
+```java
+// @Controller
+@GetMapping("/powConfig")
+public ResponseEntity getPowConfig(HttpServletRequest request,
+                                   HttpServletResponse response) {
+    Map map = userService.getPowConfig(request, response);
+    return new ResponseEntity(map, HttpStatus.OK);
+}
+// @Service
+@Override
+public Map getPowConfig(HttpServletRequest request, HttpServletResponse response) {
+    String randomString = getRandomString(powPrefixLength);
+    HashMap<Object, Object> hashMap = new HashMap<>();
+    hashMap.put("prefix", randomString);
+    hashMap.put("difficulty", powDifficulty);
+    request.getSession().setAttribute("powConfig", hashMap);
+    return hashMap;
+}
+private String getRandomString(int length) {
+    String str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    Random random = new Random();
+    StringBuffer sb = new StringBuffer();
+    for (int i = 0; i < length; i++) {
+        int number = random.nextInt(62);
+        sb.append(str.charAt(number));
+    }
+    return sb.toString();
+}
+```
+
+
+
+#### 2. powVerify
+
+ In `/powVerify`，you will get the data posted by client, where data likes:
 
 ```json
 {
@@ -93,9 +131,75 @@ You must verify two things:
 
 `difficulty` and `prefix` correspond to the value you gave the client earlier.
 
+For example with Java Spring Boot:
+
+```java
+// @Controller
+@PostMapping("/powVerify")
+public ResponseEntity powVerify(HttpServletRequest request,
+                                HttpServletResponse response, @RequestBody JSONObject json) {
+    Map map = userService.verifyPow(request, response, json.getJSONObject("data"));
+    return new ResponseEntity(map, HttpStatus.OK);
+}
+// @Service
+public Map verifyPow(HttpServletRequest request, HttpServletResponse response, JSONObject json) {
+    HttpSession session = request.getSession();
+    try {
+        HashMap powConfig = (HashMap) session.getAttribute("powConfig");
+
+        String sessionPrefix = (String) powConfig.get("prefix");
+        int difficulty = (int) powConfig.get("difficulty");
+        String md5Str = (String) json.get("md5Str");
+        int paddingNum = (int) json.get("paddingNum");
+
+        String hashCode = MD5Utils.code(sessionPrefix + (paddingNum));
+        // If the session has not generated a prefix, 
+        // or if the prefix is empty, 
+        // or if the hash value is incorrect, 
+        // or if the complexity of the hash value is incorrect, 
+        // the validation fails.
+        if (sessionPrefix == null || "".equals(sessionPrefix) || !hashCode.equals(md5Str) || !checkHash(hashCode, difficulty)) {
+            HashMap hashMap = new HashMap<>();
+            hashMap.put("verify", false);
+            // Re-generating random prefixes
+            String randomString = getRandomString(powPrefixLength);
+            hashMap.put("prefix", randomString);
+            hashMap.put("difficulty", powDifficulty);
+            session.setAttribute("powConfig", hashMap);
+            return hashMap;
+        } else {
+            HashMap hashMap = new HashMap<>();
+            hashMap.put("verify", true);
+            session.setAttribute("powVerifyResult", true);
+            return hashMap;
+        }
+    } catch (NullPointerException e) {
+        HashMap hashMap = new HashMap<>();
+        hashMap.put("verify", false);
+        // Re-generating random prefixes
+        String randomString = getRandomString(powPrefixLength);
+        hashMap.put("prefix", randomString);
+        hashMap.put("difficulty", powDifficulty);
+        session.setAttribute("powConfig", hashMap);
+        return hashMap;
+    }
+
+}
+private boolean checkHash(String hashStr, int difficulty) {
+    int zeroCnt = 0;
+    for (int idx = 0; idx < difficulty; idx++) {
+        if (hashStr.charAt(idx) != '0') break;
+        zeroCnt++;
+    }
+    return zeroCnt >= difficulty;
+}
+```
+
+You can get more detail about the server logic form my [repository](https://github.com/YaleXin/rblog-serv/blob/main/src/main/java/top/yalexin/rblog/service/UserServiceImpl.java)
+
 ### client
 
-`Captcha.start()`will return a object if pow-process is success.
+`Captcha.startPoW()` and `Captcha.tryPoWWithAxios()`  will return a object if pow-process is success.
 
 ```js
 {
