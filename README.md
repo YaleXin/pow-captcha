@@ -13,7 +13,7 @@ A PoW-based captcha for your web application.
 ### Install
 
 ```shell
-npm install PoW-captcha
+npm i @yalexin/pow-captcha
 ```
 ## Usage
 
@@ -22,7 +22,7 @@ npm install PoW-captcha
 ### Basic Usage
 
 ```javascript
-const Captcha = require("PoW-captcha");
+const Captcha = require("@yalexin/pow-captcha");
 const [api1, api2] = ['http://server.com/powConfig', 'http://server.com/powVerify'];
 Captcha.startPoW(api1, api2).then(res => {
     console.log(res);
@@ -36,7 +36,7 @@ Captcha.startPoW(api1, api2).then(res => {
 You may want to use your request object , such as `axios`
 
 ```javascript
-const Captcha = require("PoW-captcha");
+const Captcha = require("@yalexin/pow-captcha");
 const [api1, api2] = ['http://server.com/powConfig', 'http://server.com/powVerify'];
 Captcha.getPoWWithAxios(api1, this.$axios).then(config => {
     Captcha.tryPoWWithAxios(api2, config, this.$axios).then(verifyResult => {
